@@ -30,8 +30,7 @@ func main() {
 	storage := &Storage{
 		kv:         make(map[string]*Value),
 		list:       make(map[string][]string),
-		blockQueue: make(map[string][]net.Conn),
-		blockChan:  make(chan blockMessage, 1),
+		blockQueue: make(map[string][]Waiter),
 	}
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {

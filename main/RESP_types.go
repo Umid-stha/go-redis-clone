@@ -7,4 +7,5 @@ const (
 	BULK_STRINGS     = "$"
 	NULL_BULK_STRING = "$-1"
 	ARRAY            = "*"
+	NULL_ARRAY       = "*-1"
 )

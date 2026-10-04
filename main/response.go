@@ -21,6 +21,8 @@ func encode_response(resp_type string, args ...string) []byte {
 		fmt.Fprintf(&b, "-%s\r\n", args[0])
 	case NULL_BULK_STRING:
 		fmt.Fprintf(&b, "$-1\r\n")
+	case NULL_ARRAY:
+		fmt.Fprintf(&b, "*-1\r\n")
 	case INTEGER:
 		fmt.Fprintf(&b, ":%s\r\n", args[0])
 	default:

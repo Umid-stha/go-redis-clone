@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -14,17 +13,11 @@ type Value struct {
 	expiresAt time.Time
 }
 
-type blockMessage struct {
-	client  net.Conn
-	element string
-}
-
 type Storage struct {
 	mu         sync.Mutex
 	kv         map[string]*Value
 	list       map[string][]string
-	blockQueue map[string][]net.Conn
-	blockChan  chan blockMessage
+	blockQueue map[string][]chan string
 }
 
 func (s *Storage) set(key string, value string) {

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Command struct {
@@ -85,12 +87,9 @@ func handleCommand(storage *Storage, cmd *Command, conn net.Conn) []byte {
 				if !exists || len(queue) == 0 {
 					break
 				}
-				firstClient := queue[0]
 				element, _ := storage.ipop(key, startIndex)
-				blockMsg := blockMessage{client: firstClient, element: element}
-
 				storage.mu.Lock()
-				storage.blockChan <- blockMsg
+				storage.blockQueue[key][0] <- element
 				copy(storage.blockQueue[key], storage.blockQueue[key][1:])
 				//Drop the last empty element
 				storage.blockQueue[key] = storage.blockQueue[key][:len(storage.blockQueue[key])-1]
@@ -111,11 +110,9 @@ func handleCommand(storage *Storage, cmd *Command, conn net.Conn) []byte {
 				if !exists || len(queue) == 0 {
 					break
 				}
-				firstClient := queue[0]
 				element, _ := storage.ipop(key, 0)
-				blockMsg := blockMessage{client: firstClient, element: element}
-				storage.blockChan <- blockMsg
 				storage.mu.Lock()
+				storage.blockQueue[key][0] <- element
 				copy(storage.blockQueue[key], storage.blockQueue[key][1:])
 				//Drop the last empty element
 				storage.blockQueue[key] = storage.blockQueue[key][:len(storage.blockQueue[key])-1]
@@ -177,22 +174,38 @@ func handleCommand(storage *Storage, cmd *Command, conn net.Conn) []byte {
 				resp = encode_response(INTEGER, strconv.Itoa(length))
 			case "BLPOP":
 				args := args_parser(t_cmd)
-				if len(args) < 1 || len(args) > 2 {
+				if len(args) != 2 {
 					resp = encode_response(SIM_ERR, "Invalid Number of arguments.")
 					break
 				}
 				key := args[0]
-				storage.mu.Lock()
-				storage.blockQueue[key] = append(storage.blockQueue[key], conn)
-				storage.mu.Unlock()
-				for {
-					if storage.blockQueue[key][0] != conn {
-						continue
-					}
-					blockMsg := <-storage.blockChan
-					element := blockMsg.element
-					resp = encode_response(ARRAY, key, element)
+				timeout, err := strconv.Atoi(args[1])
+				if err != nil {
+					resp = encode_response(SIM_ERR, "Invalid timeout use a number.")
 					break
+				}
+				ch := make(chan string, 1)
+				storage.mu.Lock()
+				index := len(storage.blockQueue[key])
+				storage.blockQueue[key] = append(storage.blockQueue[key], ch)
+				storage.mu.Unlock()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+				if timeout == 0 {
+					ctx = context.Background()
+				}
+				defer cancel()
+				select {
+				case element := <-ch:
+					resp = encode_response(ARRAY, key, element)
+					close(ch)
+				case <-ctx.Done():
+					storage.mu.Lock()
+					list := storage.blockQueue[key]
+					copy(list[:index], list[index+1:])
+					//Drop the last empty element
+					storage.blockQueue[key] = list[:len(list)-1]
+					storage.mu.Unlock()
+					resp = encode_response(NULL_ARRAY)
 				}
 			default:
 				resp = encode_response(SIM_ERR, "ERR invalid command type or support for command doesn't exist yet.")
