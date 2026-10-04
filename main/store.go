@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -13,10 +14,17 @@ type Value struct {
 	expiresAt time.Time
 }
 
+type blockMessage struct {
+	client  net.Conn
+	element string
+}
+
 type Storage struct {
-	mu   sync.Mutex
-	kv   map[string]*Value
-	list map[string][]string
+	mu         sync.Mutex
+	kv         map[string]*Value
+	list       map[string][]string
+	blockQueue map[string][]net.Conn
+	blockChan  chan blockMessage
 }
 
 func (s *Storage) set(key string, value string) {
@@ -93,6 +101,26 @@ func (s *Storage) lrange(key string, start int, end int) []string {
 	return list[start : end+1]
 }
 
+func (s *Storage) ipop(key string, index int) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list, exists := s.list[key]
+	if !exists {
+		return "", fmt.Errorf("Doesn't exist")
+	}
+	if len(list) == 0 {
+		return "", fmt.Errorf("Empty")
+	}
+	if index >= len(list) {
+		return "", fmt.Errorf("Index out of bound")
+	}
+	t_element := list[index]
+	copy(list[:index], list[index+1:])
+	//Drop the last empty element
+	s.list[key] = list[:len(list)-1]
+	return t_element, nil
+}
+
 func (s *Storage) lpop(key string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,6 +136,27 @@ func (s *Storage) lpop(key string) (string, error) {
 	//Drop the last empty element
 	s.list[key] = list[:len(list)-1]
 	return t_element, nil
+}
+
+func (s *Storage) mLpop(key string, num int) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list, exists := s.list[key]
+	if !exists {
+		return []string{}, fmt.Errorf("Doesn't exist")
+	}
+	if len(list) == 0 {
+		return []string{}, fmt.Errorf("Empty")
+	}
+	if num > len(list) {
+		num = len(list)
+	}
+	t_elements := make([]string, num)
+	copy(t_elements, list[:num])
+	copy(list, list[num:])
+	//Drop the last empty element
+	s.list[key] = list[:len(list)-num]
+	return t_elements, nil
 }
 
 func (s *Storage) llen(key string) int {

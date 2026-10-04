@@ -15,7 +15,7 @@ func handleConnection(conn net.Conn, storage *Storage) {
 			return
 		}
 		cmd := parseRESP(string(buf[:n]))
-		resp := handleCommand(storage, cmd)
+		resp := handleCommand(storage, cmd, conn)
 
 		_, err = conn.Write(resp)
 		if err != nil {
@@ -27,7 +27,12 @@ func handleConnection(conn net.Conn, storage *Storage) {
 }
 
 func main() {
-	storage := &Storage{kv: make(map[string]*Value), list: make(map[string][]string)}
+	storage := &Storage{
+		kv:         make(map[string]*Value),
+		list:       make(map[string][]string),
+		blockQueue: make(map[string][]net.Conn),
+		blockChan:  make(chan blockMessage, 1),
+	}
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379.")
@@ -40,6 +45,7 @@ func main() {
 			fmt.Println("Failed to bind to port 6379.")
 			continue
 		}
+		fmt.Printf("Accepted conn from %s\n", conn.RemoteAddr().String())
 		go handleConnection(conn, storage)
 	}
 }

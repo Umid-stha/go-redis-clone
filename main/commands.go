@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 )
@@ -12,7 +13,7 @@ type Command struct {
 	command_type string
 }
 
-func handleCommand(storage *Storage, cmd *Command) []byte {
+func handleCommand(storage *Storage, cmd *Command, conn net.Conn) []byte {
 	resp := make([]byte, 1024)
 	if cmd.command_type != ARRAY {
 		resp = encode_response(SIM_ERR, "ERR invalid request type")
@@ -72,8 +73,28 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 					break
 				}
 				key := args[0]
+				storage.mu.Lock()
+				startIndex := len(storage.list[key])
+				storage.mu.Unlock()
 				length := storage.rpush(key, args[1:])
 				resp = encode_response(INTEGER, strconv.Itoa(length))
+				// Implement checking of the blockqueue and if there is clients waiting pop the list and updated the block channel
+				storage.mu.Lock()
+				queue, exists := storage.blockQueue[key]
+				storage.mu.Unlock()
+				if !exists || len(queue) == 0 {
+					break
+				}
+				firstClient := queue[0]
+				element, _ := storage.ipop(key, startIndex)
+				blockMsg := blockMessage{client: firstClient, element: element}
+
+				storage.mu.Lock()
+				storage.blockChan <- blockMsg
+				copy(storage.blockQueue[key], storage.blockQueue[key][1:])
+				//Drop the last empty element
+				storage.blockQueue[key] = storage.blockQueue[key][:len(storage.blockQueue[key])-1]
+				storage.mu.Unlock()
 			case "LPUSH":
 				args := args_parser(t_cmd)
 				if len(args) < 2 {
@@ -83,16 +104,47 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				key := args[0]
 				length := storage.lpush(key, args[1:])
 				resp = encode_response(INTEGER, strconv.Itoa(length))
+				// Implement checking of the blockqueue and if there is clients waiting pop the list and updated the block channel
+				storage.mu.Lock()
+				queue, exists := storage.blockQueue[key]
+				storage.mu.Unlock()
+				if !exists || len(queue) == 0 {
+					break
+				}
+				firstClient := queue[0]
+				element, _ := storage.ipop(key, 0)
+				blockMsg := blockMessage{client: firstClient, element: element}
+				storage.blockChan <- blockMsg
+				storage.mu.Lock()
+				copy(storage.blockQueue[key], storage.blockQueue[key][1:])
+				//Drop the last empty element
+				storage.blockQueue[key] = storage.blockQueue[key][:len(storage.blockQueue[key])-1]
+				storage.mu.Unlock()
 			case "LPOP":
 				args := args_parser(t_cmd)
-				if len(args) != 1 {
+				if len(args) < 1 || len(args) > 2 {
 					resp = encode_response(SIM_ERR, "Invalid Number of arguments.")
 					break
 				}
 				key := args[0]
+				if len(args) == 2 {
+					num, err := strconv.Atoi(args[1])
+					if err != nil {
+						resp = encode_response(SIM_ERR, "Invalid index use a number.")
+						break
+					}
+					elements, err := storage.mLpop(key, num)
+					if err != nil {
+						resp = encode_response(NULL_BULK_STRING)
+						break
+					}
+					resp = encode_response(ARRAY, elements...)
+					break
+				}
 				element, err := storage.lpop(key)
 				if err != nil {
 					resp = encode_response(NULL_BULK_STRING)
+					break
 				}
 				resp = encode_response(BULK_STRINGS, element)
 			case "LRANGE":
@@ -123,6 +175,25 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				key := args[0]
 				length := storage.llen(key)
 				resp = encode_response(INTEGER, strconv.Itoa(length))
+			case "BLPOP":
+				args := args_parser(t_cmd)
+				if len(args) < 1 || len(args) > 2 {
+					resp = encode_response(SIM_ERR, "Invalid Number of arguments.")
+					break
+				}
+				key := args[0]
+				storage.mu.Lock()
+				storage.blockQueue[key] = append(storage.blockQueue[key], conn)
+				storage.mu.Unlock()
+				for {
+					if storage.blockQueue[key][0] != conn {
+						continue
+					}
+					blockMsg := <-storage.blockChan
+					element := blockMsg.element
+					resp = encode_response(ARRAY, key, element)
+					break
+				}
 			default:
 				resp = encode_response(SIM_ERR, "ERR invalid command type or support for command doesn't exist yet.")
 			}
