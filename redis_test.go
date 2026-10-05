@@ -22,6 +22,8 @@
 //	expiry (PX)                          -> TestExpiry
 //	del/exists                           -> TestDelExists
 //	type                                 -> TestType
+//	lpush/rpush/llen/lrange/lpop/rpop    -> TestLists
+//	blocking blpop                       -> TestBlockingLPop
 //	multi/exec/discard                   -> TestMultiExec, TestDiscard
 //	errors inside a transaction          -> TestQueueError
 //	xadd/xrange/xread                    -> TestStreams
@@ -256,6 +258,71 @@ func TestType(t *testing.T) {
 	c.send("TYPE", "nope-not-here")
 	if got, _ := c.read(); got != "none" {
 		t.Fatalf("TYPE of missing key = %v, want none", got)
+	}
+}
+
+// ---- Lists ----
+
+func TestLists(t *testing.T) {
+	c := dial(t)
+	defer c.close()
+	c.send("RPUSH", "mylist", "a", "b", "c")
+	if got, err := c.read(); err != nil || got != int64(3) {
+		t.Fatalf("RPUSH length = %v (err %v), want 3", got, err)
+	}
+	c.send("LPUSH", "mylist", "z")
+	if got, err := c.read(); err != nil || got != int64(4) {
+		t.Fatalf("LPUSH length = %v (err %v), want 4", got, err)
+	}
+	c.send("LLEN", "mylist")
+	if got, err := c.read(); err != nil || got != int64(4) {
+		t.Fatalf("LLEN = %v (err %v), want 4", got, err)
+	}
+	c.send("LRANGE", "mylist", "0", "-1")
+	got, err := c.read()
+	if err != nil {
+		t.Fatalf("LRANGE errored: %v", err)
+	}
+	arr, ok := got.([]interface{})
+	if !ok || len(arr) != 4 || arr[0] != "z" {
+		t.Fatalf("LRANGE = %v, want [z a b c]", got)
+	}
+	c.send("LPOP", "mylist")
+	if got, _ := c.read(); got != "z" {
+		t.Fatalf("LPOP = %v, want z", got)
+	}
+	c.send("RPOP", "mylist")
+	if got, _ := c.read(); got != "c" {
+		t.Fatalf("RPOP = %v, want c", got)
+	}
+}
+
+func TestBlockingLPop(t *testing.T) {
+	writer := dial(t)
+	defer writer.close()
+	reader := dial(t)
+	defer reader.close()
+
+	done := make(chan interface{}, 1)
+	go func() {
+		reader.send("BLPOP", "blocklist", "1")
+		v, _ := reader.read()
+		done <- v
+	}()
+	time.Sleep(100 * time.Millisecond)
+	writer.send("RPUSH", "blocklist", "val")
+	if _, err := writer.read(); err != nil {
+		t.Fatalf("RPUSH errored: %v", err)
+	}
+
+	select {
+	case v := <-done:
+		arr, ok := v.([]interface{})
+		if !ok || len(arr) != 2 || arr[0] != "blocklist" || arr[1] != "val" {
+			t.Fatalf("BLPOP returned %v, want [blocklist val]", v)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("BLPOP never returned after RPUSH — are you waking blocked waiters?")
 	}
 }
 

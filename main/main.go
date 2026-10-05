@@ -15,7 +15,7 @@ func handleConnection(conn net.Conn, storage *Storage) {
 			return
 		}
 		cmd := parseRESP(string(buf[:n]))
-		resp := handleCommand(storage, cmd, conn)
+		resp := handleCommand(storage, cmd)
 
 		_, err = conn.Write(resp)
 		if err != nil {
@@ -30,7 +30,7 @@ func main() {
 	storage := &Storage{
 		kv:         make(map[string]*Value),
 		list:       make(map[string][]string),
-		blockQueue: make(map[string][]Waiter),
+		blockQueue: make(map[string][]chan string),
 	}
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
