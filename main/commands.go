@@ -77,6 +77,10 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 			key := args[0]
 			value, err := storage.get(key)
 			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
 				resp = encode_response(NULL_BULK_STRING)
 				break
 			}
@@ -89,9 +93,15 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 			}
 			key := args[0]
 			storage.mu.Lock()
-			startIndex := len(storage.list[key])
+			startIndex := len(storage.kv[key].Value.([]string))
 			storage.mu.Unlock()
-			length := storage.rpush(key, args[1:])
+			length, err := storage.rpush(key, args[1:])
+			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
+			}
 			resp = encode_response(INTEGER, strconv.Itoa(length))
 			// Implement checking of the blockqueue and if there is clients waiting pop the list and updated the block channel
 			storage.mu.Lock()
@@ -114,7 +124,13 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				break
 			}
 			key := args[0]
-			length := storage.lpush(key, args[1:])
+			length, err := storage.lpush(key, args[1:])
+			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
+			}
 			resp = encode_response(INTEGER, strconv.Itoa(length))
 			// Implement checking of the blockqueue and if there is clients waiting pop the list and updated the block channel
 			storage.mu.Lock()
@@ -153,6 +169,10 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 			}
 			element, err := storage.lpop(key)
 			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
 				resp = encode_response(NULL_BULK_STRING)
 				break
 			}
@@ -174,7 +194,13 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				resp = encode_response(SIM_ERR, "Invalid index use a number.")
 				break
 			}
-			list := storage.lrange(key, start, stop)
+			list, err := storage.lrange(key, start, stop)
+			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
+			}
 			resp = encode_response(ARRAY, list...)
 		case "LLEN":
 			args := args_parser(t_cmd)
@@ -183,7 +209,13 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				break
 			}
 			key := args[0]
-			length := storage.llen(key)
+			length, err := storage.llen(key)
+			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
+			}
 			resp = encode_response(INTEGER, strconv.Itoa(length))
 		case "BLPOP":
 			args := args_parser(t_cmd)

@@ -29,7 +29,6 @@ func handleConnection(conn net.Conn, storage *Storage) {
 func main() {
 	storage := &Storage{
 		kv:         make(map[string]*Value),
-		list:       make(map[string][]string),
 		blockQueue: make(map[string][]chan string),
 	}
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
