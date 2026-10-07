@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-type ValueType int
+type ValueType string
 
 const (
-	TypeString ValueType = iota
-	TypeList
-	TypeStream
+	TypeString ValueType = "string"
+	TypeList   ValueType = "list"
+	TypeStream ValueType = "stream"
 )
 
 type Value struct {
@@ -48,9 +48,36 @@ func (s *Storage) setListValue(key string, newList []string) error {
 		return ErrWrongType
 	}
 	if !exists {
-		s.kv[key].Type = TypeList
+		s.kv[key] = &Value{Type: TypeList}
 	}
 	s.kv[key].Value = newList
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Storage) getStreamValue(key string) ([]StreamEntry, error) {
+	s.mu.Lock()
+	data, exists := s.kv[key]
+	s.mu.Unlock()
+	if !exists {
+		return []StreamEntry{}, fmt.Errorf("Doesn't exist")
+	}
+	if exists && data.Type != TypeStream {
+		return []StreamEntry{}, ErrWrongType
+	}
+	return data.Value.([]StreamEntry), nil
+}
+
+func (s *Storage) setStreamValue(key string, stream []StreamEntry) error {
+	s.mu.Lock()
+	data, exists := s.kv[key]
+	if exists && data.Type != TypeStream {
+		return ErrWrongType
+	}
+	if !exists {
+		s.kv[key] = &Value{Type: TypeStream}
+	}
+	s.kv[key].Value = stream
 	s.mu.Unlock()
 	return nil
 }
@@ -89,9 +116,10 @@ func (s *Storage) setWithExpiration(key string, value string, arg string, interv
 	s.mu.Unlock()
 }
 
+// TODO: Optimize the number of getListvalue uses
 func (s *Storage) rpush(key string, elements []string) (int, error) {
 	list, err := s.getListValue(key)
-	if err != nil {
+	if err == ErrWrongType {
 		return 0, err
 	}
 	list = append(list, elements...)
@@ -99,10 +127,11 @@ func (s *Storage) rpush(key string, elements []string) (int, error) {
 	return len(list), nil
 }
 
+// TODO: Optimize the number of getListvalue uses
 func (s *Storage) lpush(key string, elements []string) (int, error) {
 	slices.Reverse(elements)
 	list, err := s.getListValue(key)
-	if err != nil {
+	if err == ErrWrongType {
 		return 0, err
 	}
 	list = append(elements, list...)
@@ -206,4 +235,33 @@ func (s *Storage) llen(key string) (int, error) {
 		return 0, err
 	}
 	return len(list), nil
+}
+
+func (s *Storage) xadd(args []string) (string, error) {
+	key := args[0]
+	id := args[1]
+	stream, err := s.getStreamValue(key)
+	if err == ErrWrongType {
+		return "", err
+	}
+	prevId := "0-0"
+	if len(stream) != 0 {
+		prevId = stream[len(stream)-1].Id
+	}
+	err = validateStreamId(prevId, id)
+	if err != nil {
+		return "", err
+	}
+	values := make([]StreamKV, (len(args)-2)/2)
+	for i := 2; i < len(args); i = i + 2 {
+		value := StreamKV{key: args[i], value: args[i+1]}
+		values = append(values, value)
+	}
+	streamEntry := StreamEntry{Id: id, Values: values}
+	stream = append(stream, streamEntry)
+	err = s.setStreamValue(key, stream)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }

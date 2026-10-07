@@ -42,12 +42,12 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				break
 			}
 			key := args[0]
-			_, exists := storage.kv[key]
+			data, exists := storage.kv[key]
 			if !exists {
 				resp = encode_response(SIM_STRINGS, "none")
 				break
 			}
-			resp = encode_response(SIM_STRINGS, "string")
+			resp = encode_response(SIM_STRINGS, string(data.Type))
 		case "SET":
 			args := args_parser(t_cmd)
 			if len(args) < 2 || len(args) > 4 {
@@ -92,9 +92,7 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				break
 			}
 			key := args[0]
-			storage.mu.Lock()
-			startIndex := len(storage.kv[key].Value.([]string))
-			storage.mu.Unlock()
+			startIndex, _ := storage.llen(key)
 			length, err := storage.rpush(key, args[1:])
 			if err != nil {
 				if err == ErrWrongType {
@@ -252,6 +250,18 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				storage.mu.Unlock()
 				resp = encode_response(NULL_ARRAY)
 			}
+		case "XADD":
+			args := args_parser(t_cmd)
+			id, err := storage.xadd(args)
+			if err != nil {
+				if err == ErrWrongType {
+					resp = encode_response(SIM_ERR, err.Error())
+					break
+				}
+				resp = encode_response(SIM_ERR, err.Error())
+				break
+			}
+			resp = encode_response(BULK_STRINGS, id)
 		default:
 			resp = encode_response(SIM_ERR, "ERR invalid command type or support for command doesn't exist yet.")
 		}
