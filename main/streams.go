@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 type StreamKV struct {
@@ -16,22 +15,15 @@ type StreamEntry struct {
 	Values []StreamKV
 }
 
-func validateStreamId(prevId string, id string) error {
-	prevSplitId := strings.Split(prevId, "-")
-	splitId := strings.Split(id, "-")
-	if len(splitId) != 2 {
-		return fmt.Errorf("ERR The ID specified in XADD need to be in <millisecondtime>-<sequencenumber> format.")
-	}
-	millisecondTime, err := strconv.Atoi(splitId[0])
+func validateStreamId(prevMillisecondTime int, prevSequenceNumber int, millisecond string, sequence string) error {
+	millisecondTime, err := strconv.Atoi(millisecond)
 	if err != nil {
 		return fmt.Errorf("ERR The ID specified in XADD need to have valid number as <millisecondtime>")
 	}
-	sequenceNumber, err := strconv.Atoi(splitId[1])
+	sequenceNumber, err := strconv.Atoi(sequence)
 	if err != nil {
 		return fmt.Errorf("ERR The ID specified in XADD need to have valid number as <sequencenumber>")
 	}
-	prevMillisecondTime, _ := strconv.Atoi(prevSplitId[0])
-	prevSequenceNumber, _ := strconv.Atoi(prevSplitId[1])
 	if millisecondTime < prevMillisecondTime {
 		return fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
@@ -39,4 +31,8 @@ func validateStreamId(prevId string, id string) error {
 		return fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 	return nil
+}
+
+func autoGenerateSequenceId(prevSequenceNumber int) string {
+	return strconv.Itoa(prevSequenceNumber + 1)
 }

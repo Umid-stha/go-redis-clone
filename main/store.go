@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -248,7 +249,23 @@ func (s *Storage) xadd(args []string) (string, error) {
 	if len(stream) != 0 {
 		prevId = stream[len(stream)-1].Id
 	}
-	err = validateStreamId(prevId, id)
+	prevSplitId := strings.Split(prevId, "-")
+	prevMillisecondTime, _ := strconv.Atoi(prevSplitId[0])
+	prevSequenceNumber, _ := strconv.Atoi(prevSplitId[1])
+	splitId := strings.Split(id, "-")
+	if len(splitId) != 2 {
+		return "", fmt.Errorf("ERR The ID specified in XADD need to be in <millisecondtime>-<sequencenumber> format.")
+	}
+	millisecondTime := splitId[0]
+	sequenceNumber := splitId[1]
+
+	if millisecondTime == "*" && sequenceNumber == "*" {
+
+	} else if sequenceNumber == "*" {
+		id = fmt.Sprintf("%s-%s", millisecondTime, autoGenerateSequenceId(prevSequenceNumber))
+	} else {
+		err = validateStreamId(prevMillisecondTime, prevSequenceNumber, millisecondTime, sequenceNumber)
+	}
 	if err != nil {
 		return "", err
 	}

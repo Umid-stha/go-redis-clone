@@ -92,6 +92,7 @@ func handleCommand(storage *Storage, cmd *Command) []byte {
 				break
 			}
 			key := args[0]
+			// TODO: Optimize the number of getListvalue uses
 			startIndex, _ := storage.llen(key)
 			length, err := storage.rpush(key, args[1:])
 			if err != nil {
