@@ -33,6 +33,14 @@ func validateStreamId(prevMillisecondTime int, prevSequenceNumber int, milliseco
 	return nil
 }
 
-func autoGenerateSequenceId(prevSequenceNumber int) string {
+func autoGenerateSequenceId(prevMillisecondTime int, prevSequenceNumber int, millisecondTime string) string {
+	if prevSequenceNumber == 0 && prevMillisecondTime == 0 && millisecondTime != "0" {
+		return "0"
+	}
+	millisecond, _ := strconv.Atoi(millisecondTime)
+	if prevMillisecondTime < millisecond {
+		return "0"
+	}
+
 	return strconv.Itoa(prevSequenceNumber + 1)
 }

@@ -252,20 +252,31 @@ func (s *Storage) xadd(args []string) (string, error) {
 	prevSplitId := strings.Split(prevId, "-")
 	prevMillisecondTime, _ := strconv.Atoi(prevSplitId[0])
 	prevSequenceNumber, _ := strconv.Atoi(prevSplitId[1])
+
+	fmt.Println(prevId)
 	splitId := strings.Split(id, "-")
-	if len(splitId) != 2 {
-		return "", fmt.Errorf("ERR The ID specified in XADD need to be in <millisecondtime>-<sequencenumber> format.")
+	if len(splitId) > 2 || len(splitId) < 1 {
+		return "", fmt.Errorf("ERR The ID specified in XADD need to be in <millisecondtime>-<sequencenumber> or * format.")
 	}
+
 	millisecondTime := splitId[0]
-	sequenceNumber := splitId[1]
+	sequenceNumber := "*"
 
-	if millisecondTime == "*" && sequenceNumber == "*" {
-
-	} else if sequenceNumber == "*" {
-		id = fmt.Sprintf("%s-%s", millisecondTime, autoGenerateSequenceId(prevSequenceNumber))
-	} else {
-		err = validateStreamId(prevMillisecondTime, prevSequenceNumber, millisecondTime, sequenceNumber)
+	if len(splitId) == 2 {
+		sequenceNumber = splitId[1]
 	}
+
+	if millisecondTime == "*" {
+		millisecondTime = strconv.Itoa(int(time.Now().Local().UnixMilli()))
+	}
+
+	if sequenceNumber == "*" {
+		sequenceNumber = fmt.Sprintf("%s", autoGenerateSequenceId(prevMillisecondTime, prevSequenceNumber, millisecondTime))
+		id = fmt.Sprintf("%s-%s", millisecondTime, sequenceNumber)
+	}
+
+	err = validateStreamId(prevMillisecondTime, prevSequenceNumber, millisecondTime, sequenceNumber)
+
 	if err != nil {
 		return "", err
 	}
